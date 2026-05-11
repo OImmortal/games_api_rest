@@ -12,6 +12,13 @@ import (
 
 var errInvalidID = errors.New("ID inválido")
 
+type jogoInput struct {
+	Nome   *string `json:"nome" binding:"required"`
+	Tipo   *string `json:"tipo" binding:"required"`
+	Nota   *int    `json:"nota" binding:"required"`
+	Review *string `json:"review" binding:"required"`
+}
+
 func JogoService(r *gin.Engine) {
 	r.GET("/jogos", func(ctx *gin.Context) {
 		jogos, err := repository.GetAllJogos()
@@ -75,13 +82,20 @@ func JogoService(r *gin.Engine) {
 			return
 		}
 
-		var jogo models.Jogo
+		var input jogoInput
 
-		if err := ctx.ShouldBindJSON(&jogo); err != nil {
+		if err := ctx.ShouldBindJSON(&input); err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{
 				"error": "JSON inválido: " + err.Error(),
 			})
 			return
+		}
+
+		jogo := models.Jogo{
+			Nome:   *input.Nome,
+			Tipo:   *input.Tipo,
+			Nota:   *input.Nota,
+			Review: *input.Review,
 		}
 
 		jogoAtualizado, err := repository.PutJogoById(jogo, id)

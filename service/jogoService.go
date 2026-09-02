@@ -10,18 +10,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var errInvalidID = errors.New("ID inválido")
+var (
+	errInvalidID        = errors.New("ID inválido")
+	errPageInvalida     = errors.New("O parâmetro page deve ser maior que zero.")
+	errPageSizeInvalido = errors.New("O parâmetro pageSize deve ser maior que zero.")
+)
 
 type jogoInput struct {
-	Nome   *string `json:"nome" binding:"required"`
-	Tipo   *string `json:"tipo" binding:"required"`
-	Nota   *int    `json:"nota" binding:"required"`
-	Review *string `json:"review" binding:"required"`
+	Nome           *string  `json:"nome" binding:"required"`
+	Tipo           *string  `json:"tipo" binding:"required"`
+	Nota           *int     `json:"nota" binding:"required"`
+	Review         *string  `json:"review" binding:"required"`
+	Preco          *float64 `json:"preco"`
+	DataLancamento *string  `json:"dataLancamento"`
 }
 
 func JogoService(r *gin.Engine) {
 	r.GET("/jogos", func(ctx *gin.Context) {
-		jogos, err := repository.GetAllJogos()
+		page, pageSize, err := parsePaginacao(ctx)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		resultado, err := repository.ListJogos(repository.FiltroJogos{
+			Nome:     ctx.Query("nome"),
+			Genero:   ctx.Query("genero"),
+			Page:     page,
+			PageSize: pageSize,
+		})
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Erro ao buscar jogos: " + err.Error(),
@@ -29,7 +48,7 @@ func JogoService(r *gin.Engine) {
 			return
 		}
 
-		ctx.JSON(http.StatusOK, jogos)
+		ctx.JSON(http.StatusOK, resultado)
 	})
 
 	r.GET("/jogos/:id", func(ctx *gin.Context) {
@@ -43,9 +62,7 @@ func JogoService(r *gin.Engine) {
 
 		jogo, err := repository.GetJogoById(id)
 		if err != nil {
-			ctx.JSON(http.StatusNotFound, gin.H{
-				"error": err.Error(),
-			})
+			respondJogoError(ctx, err)
 			return
 		}
 
@@ -98,11 +115,17 @@ func JogoService(r *gin.Engine) {
 			Review: *input.Review,
 		}
 
+		if input.Preco != nil {
+			jogo.Preco = *input.Preco
+		}
+
+		if input.DataLancamento != nil {
+			jogo.DataLancamento = *input.DataLancamento
+		}
+
 		jogoAtualizado, err := repository.PutJogoById(jogo, id)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{
-				"error": err.Error(),
-			})
+			respondJogoError(ctx, err)
 			return
 		}
 
@@ -119,14 +142,35 @@ func JogoService(r *gin.Engine) {
 		}
 
 		if err := repository.DeleteJogo(id); err != nil {
-			ctx.JSON(http.StatusNotFound, gin.H{
-				"error": err.Error(),
-			})
+			respondJogoError(ctx, err)
 			return
 		}
 
 		ctx.JSON(http.StatusNoContent, "")
 	})
+}
+
+func parsePaginacao(ctx *gin.Context) (int, int, error) {
+	page := 1
+	pageSize := 10
+
+	if pageParam := ctx.Query("page"); pageParam != "" {
+		valor, err := strconv.Atoi(pageParam)
+		if err != nil || valor <= 0 {
+			return 0, 0, errPageInvalida
+		}
+		page = valor
+	}
+
+	if pageSizeParam := ctx.Query("pageSize"); pageSizeParam != "" {
+		valor, err := strconv.Atoi(pageSizeParam)
+		if err != nil || valor <= 0 {
+			return 0, 0, errPageSizeInvalido
+		}
+		pageSize = valor
+	}
+
+	return page, pageSize, nil
 }
 
 func parseID(param string) (int, error) {
@@ -140,4 +184,15 @@ func parseID(param string) (int, error) {
 	}
 
 	return id, nil
+}
+
+func respondJogoError(ctx *gin.Context, err error) {
+	status := http.StatusBadRequest
+	if errors.Is(err, repository.ErrJogoNaoEncontrado) {
+		status = http.StatusNotFound
+	}
+
+	ctx.JSON(status, gin.H{
+		"error": err.Error(),
+	})
 }
